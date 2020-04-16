@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -55,15 +56,25 @@ func genSSHConfig(node *Node) *defaultClient {
 
 	var authMethods []ssh.AuthMethod
 
+	socket := os.Getenv("SSH_AUTH_SOCK")
+	if len(socket) > 0 {
+		conn, err := net.Dial("unix", socket)
+		if err != nil {
+			l.Error(err)
+		}
+		agentClient := agent.NewClient(conn)
+		authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
+	}
+
 	var pemBytes []byte
-	if node.KeyPath == "" {
+	if len(socket) == 0 && node.KeyPath == "" {
 		pemBytes, err = ioutil.ReadFile(path.Join(u.HomeDir, ".ssh/id_rsa"))
-	} else {
+	} else if node.KeyPath != "" {
 		pemBytes, err = ioutil.ReadFile(node.KeyPath)
 	}
 	if err != nil {
 		l.Error(err)
-	} else {
+	} else if len(pemBytes) > 0 {
 		var signer ssh.Signer
 		if node.Passphrase != "" {
 			signer, err = ssh.ParsePrivateKeyWithPassphrase(pemBytes, []byte(node.Passphrase))
